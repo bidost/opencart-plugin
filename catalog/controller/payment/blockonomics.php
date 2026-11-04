@@ -39,7 +39,7 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 	 */
 	public function index() {
 
-		$data['url_redirect'] = $this->url->link('extension/blockonomics/payment/blockonomics|invoice', $this->config->get('config_secure'));
+		$data['url_redirect'] = $this->url->link($this->blockonomics->route('extension/blockonomics/payment/blockonomics', 'invoice'), $this->getLanguageArgs());
 		$data['button_confirm'] = $this->language->get('button_confirm');
 
 		if (isset($this->session->data['error_blockonomics'])) {
@@ -62,12 +62,13 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		$this->load->model('checkout/order');
 
 		if (!isset($this->session->data['order_id'])) {
-			$this->response->redirect($this->url->link('checkout/cart'));
+			$this->response->redirect($this->url->link('checkout/cart', $this->getLanguageArgs(), true));
 			return;
 		}
-		$order_info = $this->model_checkout_order->getOrder($this->session->data['order_id']);
-		if (false === $order_info) {
-			$this->response->redirect($this->url->link('checkout/cart'));
+		$order_info = $this->model_checkout_order->getOrder((int)$this->session->data['order_id']);
+		// OpenCart 4.x returns an empty array if the order is not found
+		if (empty($order_info)) {
+			$this->response->redirect($this->url->link('checkout/cart', $this->getLanguageArgs(), true));
 			return;
 		}
 
@@ -77,32 +78,32 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 
 		$data['breadcrumbs'][] = array(
 			'text' => $this->language->get('text_home'),
-			'href' => $this->url->link('common/home')
+			'href' => $this->url->link('common/home', $this->getLanguageArgs())
 		);
 
 		$data['breadcrumbs'][] = array(
 			'text' => $this->language->get('text_basket'),
-			'href' => $this->url->link('checkout/cart')
+			'href' => $this->url->link('checkout/cart', $this->getLanguageArgs())
 		);
 
 		$data['breadcrumbs'][] = array(
 			'text' => $this->language->get('text_checkout'),
-			'href' => $this->url->link('checkout/checkout', '', true)
+			'href' => $this->url->link('checkout/checkout', $this->getLanguageArgs())
 		);
 
 		$data['breadcrumbs'][] = array(
 			'text' => $this->language->get('text_invoice'),
-			'href' => $this->url->link('extension/blockonomics/payment/blockonomics|invoice')
+			'href' => $this->url->link($this->blockonomics->route('extension/blockonomics/payment/blockonomics', 'invoice'), $this->getLanguageArgs())
 		);
 
 		if (empty($order_info['currency_code'])) {
-			$this->log('error', 'Cannot prepare invoice without `currency_code`');
-			throw Exception('Cannot prepare invoice without `currency_code`');
+			$this->blockonomics->log('error', 'Cannot prepare invoice without `currency_code`');
+			throw new \Exception('Cannot prepare invoice without `currency_code`');
 		}
 
 		if (empty($order_info['total'])) {
-			$this->log('error', 'Cannot prepare invoice without `total`');
-			throw Exception('Cannot prepare invoice without `total`');
+			$this->blockonomics->log('error', 'Cannot prepare invoice without `total`');
+			throw new \Exception('Cannot prepare invoice without `total`');
 		}
 		
 		$this->document->addLink('extension/blockonomics/catalog/view/css/order.css', "stylesheet");
@@ -120,21 +121,30 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		$data['currency_code'] = $this->config->get('config_currency');
 		$price = $this->blockonomics->getBTCPrice();
 
+		// Do not divide by an empty price (for example, if the price API is not available)
+		if (!is_numeric($price) || $price <= 0) {
+			$this->blockonomics->log('error', 'Cannot get the BTC price for currency ' . $data['currency_code']);
+			$data['address_error'] = true;
+			$this->response->setOutput($this->load->view('extension/blockonomics/payment/blockonomicsinvoice', $data));
+			return;
+		}
+
 		$fiat_amount = $order_info['total'];
 		$bits = intval(1.0e8*$fiat_amount/$price);
 		$satoshi_amount = $this->blockonomics->fix_displaying_small_values($bits);
 		$data['satoshi_amount'] = $satoshi_amount;
 		$data['fiat_amount'] = number_format($fiat_amount, 2);
 		$data['crypto_rate'] = $this->blockonomics->get_crypto_rate_from_params($fiat_amount, $bits);
-		$order_id = $order_info['order_id'];
+		$order_id = (int)$order_info['order_id'];
     
 		$this->model_checkout_order->addHistory($order_id, 1, "", true);
 
 		$current_time = time();
 		$data['order_id'] = $order_id;
 
-		$data['success_url'] = $this->url->link('checkout/success');
-		$data['timeout_url'] = $this->url->link('extension/blockonomics/payment/blockonomics|timeout', $this->config->get('config_secure'));
+		// These URLs are used in JavaScript, so do not encode '&' as '&amp;'
+		$data['success_url'] = $this->url->link('checkout/success', $this->getLanguageArgs(), true);
+		$data['timeout_url'] = $this->url->link($this->blockonomics->route('extension/blockonomics/payment/blockonomics', 'timeout'), $this->getLanguageArgs(), true);
     
 		$sql = $this->db->query("SELECT * FROM ".DB_PREFIX."blockonomics_bitcoin_orders WHERE `id_order` = '".$order_id."' LIMIT 1");
 		$order = $sql->row;
@@ -152,7 +162,7 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 
 				//Insert into blockonomics orders table
 				$this->db->query("INSERT IGNORE INTO ".DB_PREFIX."blockonomics_bitcoin_orders (id_order, timestamp,  addr, txid, status,value, bits, bits_payed) VALUES
-				('".(int)$order_id."','".(int)$current_time."','".$btc_address."', '', -1,'".(float)$fiat_amount."','".(int)$bits."', 0)");
+				('".(int)$order_id."','".(int)$current_time."','".$this->db->escape($btc_address)."', '', -1,'".(float)$fiat_amount."','".(int)$bits."', 0)");
 			} else {
 				$data['address_error'] = true;
 			}
@@ -161,7 +171,7 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 			$data['btc_address'] = $order['addr'];
 			$data['btc_href'] = "bitcoin:".$order['addr']."?amount=".$satoshi_amount;
 
-			$query="UPDATE ".DB_PREFIX."blockonomics_bitcoin_orders SET bits='".$bits."',value='".$fiat_amount."',timestamp=".$current_time." WHERE addr='".$order['addr']."'";
+			$query="UPDATE ".DB_PREFIX."blockonomics_bitcoin_orders SET bits='".(int)$bits."',value='".(float)$fiat_amount."',timestamp=".(int)$current_time." WHERE addr='".$this->db->escape($order['addr'])."'";
 			$this->db->query($query);
 		}
 
@@ -196,25 +206,25 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		$this->load->model('checkout/order');
 
 		//Get parameters from callback url
-		$secret = $_GET['secret'];
-		$txid = $_GET['txid'];
-		$value = $_GET['value'];
-		$status = $_GET['status'];
-		$addr = $_GET['addr'];
+		$secret = isset($this->request->get['secret']) ? (string)$this->request->get['secret'] : '';
+		$txid = isset($this->request->get['txid']) ? (string)$this->request->get['txid'] : '';
+		$value = isset($this->request->get['value']) ? (int)$this->request->get['value'] : 0;
+		$status = isset($this->request->get['status']) ? (string)$this->request->get['status'] : '';
+		$addr = isset($this->request->get['addr']) ? (string)$this->request->get['addr'] : '';
 
-		if($this->setting('callback_secret') != $secret) {
+		if($secret === '' || $this->setting('callback_secret') != $secret) {
 			die('Invalid secret');
 		}
 
 		//Upate order info
-		$query="UPDATE ".DB_PREFIX."blockonomics_bitcoin_orders SET status='".(int)$status."',txid='".$txid."',bits_payed=".(int)$value." WHERE addr='".$addr."'";
+		$query="UPDATE ".DB_PREFIX."blockonomics_bitcoin_orders SET status='".(int)$status."',txid='".$this->db->escape($txid)."',bits_payed=".(int)$value." WHERE addr='".$this->db->escape($addr)."'";
 		$this->db->query($query);
 
-		$sql = $this->db->query("SELECT * FROM ".DB_PREFIX."blockonomics_bitcoin_orders WHERE `addr` = '".$addr."' LIMIT 1");
+		$sql = $this->db->query("SELECT * FROM ".DB_PREFIX."blockonomics_bitcoin_orders WHERE `addr` = '".$this->db->escape($addr)."' LIMIT 1");
 		$order = $sql->row;
 
 		if(!isset($order['id_order'])){
-			$this->log('error', 'Order with bitcoin address '.$addr.' not found in the records.');
+			$this->blockonomics->log('error', 'Order with bitcoin address '.$addr.' not found in the records.');
 			return;
 		}
 
@@ -239,7 +249,7 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 							"You can view the transaction at: <br>" .
 							"<a href='https://www.blockonomics.co/api/tx?txid=$txid&addr=$addr' target='_blank'>https://www.blockonomics.co/api/tx?txid=$txid&addr=$addr</a>";
 				// Progress the order status
-				$this->model_checkout_order->addHistory($order['id_order'], $order_status_id, $comment, true);
+				$this->model_checkout_order->addHistory((int)$order['id_order'], (int)$order_status_id, $comment, true);
 				break;
 			case 1:
 				break;
@@ -256,12 +266,23 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 						"You can view the transaction at:\r" .
 						"<a href='https://www.blockonomics.co/api/tx?txid=$txid&addr=$addr' target='_blank'>https://www.blockonomics.co/api/tx?txid=$txid&addr=$addr</a>";
 				// Progress the order status
-				$this->model_checkout_order->addHistory($order['id_order'], $order_status_id, $comment, true);
+				$this->model_checkout_order->addHistory((int)$order['id_order'], (int)$order_status_id, $comment, true);
 				break;
 			default:
-				$this->response->redirect($this->url->link('checkout/checkout'));
+				$this->response->redirect($this->url->link('checkout/checkout', $this->getLanguageArgs(), true));
 				return;
 		}
 
+	}
+
+	/**
+	 * Returns the URL arguments that keep the language of the customer
+	 *
+	 * OpenCart 4.x uses the 'language' URL argument to select the store language.
+	 *
+	 * @return string
+	 */
+	private function getLanguageArgs() {
+		return 'language=' . $this->config->get('config_language');
 	}
 }

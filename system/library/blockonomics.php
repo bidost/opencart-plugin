@@ -8,8 +8,8 @@ namespace Opencart\Extension\Blockonomics\System\Library;
 
 class Blockonomics {
 
-	/** @var int $version */
-	public $version = '4.0.1';
+	/** @var string $version */
+	public $version = '4.1.0';
 
 	/** @var Registry $registry */
 	private $registry;
@@ -20,6 +20,15 @@ class Blockonomics {
   /** @var string $blockonomics_websocket_url */
   public $blockonomics_websocket_url;
 
+  /** @var string $blockonomics_new_address_url */
+  public $blockonomics_new_address_url;
+
+  /** @var string $blockonomics_price_url */
+  public $blockonomics_price_url;
+
+  /** @var string $blockonomics_get_callback_url */
+  public $blockonomics_get_callback_url;
+
 	/**
 	 * Blockonomics Library constructor
 	 * @param Registry $registry
@@ -27,9 +36,8 @@ class Blockonomics {
 	public function __construct($registry) {
 		$this->registry = $registry;
 
-		// Setup encryption
-		$fingerprint = substr(sha1(sha1(__DIR__)), 0, 24);
-    $this->encryption = new \Opencart\System\Library\Encryption($fingerprint);
+    // Note: Do not use \Opencart\System\Library\Encryption here.
+    // OpenCart 4.1.0.0 and later do not have this class.
 
     // Setup logging
 		$this->logger = new \Opencart\System\Library\Log('blockonomics.log');
@@ -40,8 +48,53 @@ class Blockonomics {
     //$this->blockonomics_websocket_url = 'ws://localhost:8080';
     $this->blockonomics_new_address_url = $blockonomics_base_url.'/api/new_address';
     $this->blockonomics_price_url = $blockonomics_base_url.'/api/price?currency=';
+    $this->blockonomics_get_callback_url = $blockonomics_base_url.'/api/address?&no_balance=true&only_xpub=true&get_callback=true';
     $this->setting('debug', 0);
 	}
+
+  /**
+   * Returns the character that separates the controller route and the method name.
+   *
+   * OpenCart 4.0.0.0 - 4.0.1.x use '|' (for example 'extension/x/payment/y|confirm').
+   * OpenCart 4.0.2.0 and later (4.1.x too) use '.' (for example 'extension/x/payment/y.confirm').
+   *
+   * @return string
+   */
+  public function getMethodSeparator() {
+    if (defined('VERSION') && version_compare(VERSION, '4.0.2.0', '>=')) {
+      return '.';
+    }
+
+    return '|';
+  }
+
+  /**
+   * Makes a route that calls a method of a controller, with the correct separator
+   * for the installed OpenCart version.
+   *
+   * @param string $route  Controller route (for example 'extension/blockonomics/payment/blockonomics')
+   * @param string $method Method name (for example 'callback')
+   * @return string
+   */
+  public function route($route, $method) {
+    return $route . $this->getMethodSeparator() . $method;
+  }
+
+  /**
+   * Makes a callback URL comparable when only the secret or the method separator is different.
+   *
+   * Callback URLs made by OpenCart 4.0.0.0 - 4.0.1.x contain '|callback'.
+   * Callback URLs made by OpenCart 4.0.2.0 and later contain '.callback'.
+   * Both URLs go to the same callback method.
+   *
+   * @param string $url
+   * @return string
+   */
+  public function normalizeCallbackUrl($url) {
+    $url = str_replace(array('&amp;', '%7C', '%7c', '|'), array('&', '.', '.', '.'), (string)$url);
+
+    return preg_replace('/([?&])secret=[^&]*/', '$1secret=', $url);
+  }
 
 	/**
 	 * Magic getter for Registry items
@@ -99,7 +152,7 @@ class Blockonomics {
     curl_close($ch);
 
     $responseObj = json_decode($data);
-    if (!isset($responseObj)) {
+    if (!isset($responseObj) || !isset($responseObj->price)) {
       return '';
     }
 
@@ -238,9 +291,8 @@ class Blockonomics {
             $post_content = '{"callback": "' . $callback_url . '", "xpub": "' . $response->data[0]->address . '"}';
             $this->doCurlCall($set_callback_url, $post_content);
         } elseif ($response->data[0]->callback != $callback_url) {
-            // Check if only secret differs
-            $base_url = substr($callback_url, 0, -48);
-            if (strpos($response->data[0]->callback, $base_url) !== false) {
+            // Check if only secret (or the '|' / '.' method separator) differs
+            if ($this->normalizeCallbackUrl($response->data[0]->callback) == $this->normalizeCallbackUrl($callback_url)) {
                 //Looks like the user regenrated callback by mistake
                 //Just force Update_callback on server
                 $post_content = '{"callback": "' . $callback_url . '", "xpub": "' . $response->data[0]->address . '"}';
@@ -264,7 +316,7 @@ class Blockonomics {
         // Test new address generation
         $new_addresss_response = $this->getNewAddress(true);
         if ($new_addresss_response->response_code != 200) {
-            $error_str = $new_addresss_response->message;
+            $error_str = isset($new_addresss_response->message) ? $new_addresss_response->message : 'Could not generate new address. HTTP status: ' . $new_addresss_response->response_code;
         }
     }
 

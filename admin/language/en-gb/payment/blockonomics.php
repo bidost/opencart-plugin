@@ -56,6 +56,7 @@ $_['warning_unable_to_connect'] = 'Warning: Unable to connect to Blockonomics. C
 $_['warning_disconnected']      = 'Warning: You are no longer connected to Blockonomics. <a href="%s" class="alert-link">Click here to reconnect.</a>';
 
 // Error
+$_['error_permission']                 = 'Warning: You do not have permission to modify the Blockonomics payment module!';
 $_['error_callback_url']                    = '`Notification URL` needs to be a valid URL';
 $_['error_api_key']                    = '`Blocknomics API Key` should not be empty';
 $_['error_callback_test_setup']                 = 'There is a problem in your callback url';

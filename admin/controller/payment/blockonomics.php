@@ -56,11 +56,14 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		$data['button_cancel'] = $this->language->get('button_cancel');
 		$data['button_gen_secret'] = $this->language->get('button_save');
 
-		$data['url_action'] = $this->url->link('extension/blockonomics/payment/blockonomics|save', 'user_token=' . $this->session->data['user_token']);
-		$data['cancel'] = $this->url->link('marketplace/extension', 'user_token=' . $this->session->data['user_token']);
+		// OpenCart 4.0.0.0 - 4.0.1.x use 'route|method', OpenCart 4.0.2.0 and later use 'route.method'
+		$route = 'extension/blockonomics/payment/blockonomics';
+
+		$data['url_action'] = $this->url->link($this->blockonomics->route($route, 'save'), 'user_token=' . $this->session->data['user_token']);
+		$data['cancel'] = $this->url->link('marketplace/extension', 'user_token=' . $this->session->data['user_token'] . '&type=payment');
 		$data['url_reset'] = $this->url->link('extension/blockonomics/payment/reset', 'user_token=' . $this->session->data['user_token']);
-		$data['url_gen_secret'] = $this->url->link('extension/blockonomics/payment/blockonomics|gensecret', 'user_token=' . $this->session->data['user_token']);
-		$data['url_test_setup'] = $this->url->link('extension/blockonomics/payment/blockonomics|testsetup', 'user_token=' . $this->session->data['user_token']);
+		$data['url_gen_secret'] = $this->url->link($this->blockonomics->route($route, 'gensecret'), 'user_token=' . $this->session->data['user_token']);
+		$data['url_test_setup'] = $this->url->link($this->blockonomics->route($route, 'testsetup'), 'user_token=' . $this->session->data['user_token']);
 
 		$data['breadcrumbs'] = array();
 
@@ -159,18 +162,8 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 
 		$secret = md5(uniqid(rand(), true));
 
-		$default_callback_url = $this->url->link('extension/blockonomics/payment/blockonomics|callback&secret='.$secret , $this->config->get('config_secure'));
-		
-		$default_callback_url = str_replace(HTTP_SERVER, HTTP_CATALOG, $default_callback_url);
-		
-		if (defined('HTTPS_SERVER')) {
-			$default_callback_url = str_replace(HTTPS_SERVER, HTTPS_CATALOG, $default_callback_url);
-		}
-
-		$default_callback_url = str_replace('&amp;', '&', $default_callback_url);
-
 		$json['callback_secret'] = $secret;
-		$json['callback_url'] = $default_callback_url;
+		$json['callback_url'] = $this->getCallbackUrl($secret);
 
 		$this->response->addHeader('Content-Type: application/json');
 		$this->response->setOutput(json_encode($json));
@@ -188,7 +181,11 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 			$response = $this->blockonomics->testsetup();
 
 			if($response){
-				$json['error'] = $this->language->get('error_'.$response);
+				// Use the language text if it exists, else show the message from Blockonomics
+				$key = 'error_' . $response;
+				$message = $this->language->get($key);
+
+				$json['error'] = ($message != $key) ? $message : $response;
 			}
 		}
 
@@ -204,7 +201,9 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 
     	$this->load->model('localisation/order_status');
 		$order_statuses = $this->model_localisation_order_status->getOrderStatuses();
-		$default_complete_status = null;
+		// 2 = 'Processing' in a default OpenCart installation.
+		// Do not use null, because OpenCart cannot save a null setting value (TypeError).
+		$default_complete_status = 2;
 
 		foreach ($order_statuses as $order_status) {
 			if ($order_status['name'] == 'Processing') {
@@ -217,14 +216,7 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		//Generate callback secret
 		$secret = md5(uniqid(rand(), true));
 
-		$default_callback_url = $this->url->link('extension/blockonomics/payment/blockonomics|callback&secret='.$secret , $this->config->get('config_secure'));
-		$default_callback_url = str_replace(HTTP_SERVER, HTTP_CATALOG, $default_callback_url);
-		if (defined('HTTPS_SERVER')) {
-			$default_callback_url = str_replace(HTTPS_SERVER, HTTPS_CATALOG, $default_callback_url);
-		}
-		$default_callback_url = str_replace('&amp;', '&', $default_callback_url);
-		
-		$data['default_callback_url'] = $default_callback_url;
+		$default_callback_url = $this->getCallbackUrl($secret);
 
 		$this->db->query("DELETE FROM ".DB_PREFIX."setting WHERE code = 'blockonomics'");
 		
@@ -268,5 +260,26 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		$this->load->model('setting/setting');
 		$this->model_setting_setting->deleteSetting('payment_blockonomics');
 		$this->db->query('DROP TABLE IF EXISTS `' .DB_PREFIX. 'blockonomics_bitcoin_orders`;');
+	}
+
+	/**
+	 * Makes the catalog (store front) callback URL for the callback secret
+	 *
+	 * The method separator ('|' or '.') is selected for the installed OpenCart version.
+	 *
+	 * @param string $secret Callback secret
+	 * @return string
+	 */
+	private function getCallbackUrl($secret) {
+		$callback_url = $this->url->link($this->blockonomics->route('extension/blockonomics/payment/blockonomics', 'callback'), 'secret=' . $secret, true);
+
+		// The admin URL object makes admin URLs. Change them to catalog URLs.
+		$callback_url = str_replace(HTTP_SERVER, HTTP_CATALOG, $callback_url);
+
+		if (defined('HTTPS_SERVER') && defined('HTTPS_CATALOG')) {
+			$callback_url = str_replace(HTTPS_SERVER, HTTPS_CATALOG, $callback_url);
+		}
+
+		return str_replace('&amp;', '&', $callback_url);
 	}
 }
