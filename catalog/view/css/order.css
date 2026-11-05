@@ -18,8 +18,9 @@
   flex: 2;
 }
 
+/* The QR code is always shown (same as the Blockonomics WooCommerce plugin since its 2023 checkout design) */
 .bnomics-qr-code {
-  display: none;
+  display: block;
 }
 
 .bnomics-qr-code-hint {

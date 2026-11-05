@@ -83,11 +83,13 @@ class Blockonomics {
             this.copy_to_clipboard("bnomics-amount-input")
         })
         
-        // QR Handler
-        this._show_qr.addEventListener('click', (e) => {
-            e.preventDefault()
-            this.toggle_qr()
-        })
+        // QR Handler (optional: the QR code is always shown, a template can still add a #bnomics-show-qr toggle)
+        if (this._show_qr) {
+            this._show_qr.addEventListener('click', (e) => {
+                e.preventDefault()
+                this.toggle_qr()
+            })
+        }
         
         this._refresh.addEventListener('click', (e) => {
             e.preventDefault()

@@ -1,13 +1,13 @@
 {#
-  Same layout and button id as the OpenCart 4 core payment extensions (bank_transfer, cod).
-  Do not put the button in a floated element: the container of a floated element has no height,
-  so the next element on the confirm page can cover the button.
+  Layout: same as the OpenCart 4 core payment extensions (bank_transfer, cod): a 'text-end' block
+  and the id 'button-confirm'. Do not put the button in a floated element: the container of a
+  floated element has no height, so the next element on the confirm page can cover the button.
+
+  The button is a link with an inline onclick, and it does not need jQuery or a <script> block:
+  - normal click and click without JavaScript: the browser opens the href,
+  - $('#button-confirm').trigger('click') from a one page checkout: jQuery calls the onclick,
+  - confirm HTML added with innerHTML (scripts do not run) or jQuery loaded at the end of the page: works.
 #}
 <div class="text-end">
-  <button type="button" id="button-confirm" class="btn btn-primary" data-href="{{ url_redirect }}">{{ button_confirm }}</button>
+  <a href="{{ url_redirect }}" id="button-confirm" class="btn btn-primary" role="button" onclick="window.location.href = this.href; return false;">{{ button_confirm }}</a>
 </div>
-<script type="text/javascript"><!--
-$('#button-confirm').on('click', function() {
-    location = $(this).attr('data-href');
-});
-//--></script>
