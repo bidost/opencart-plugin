@@ -106,10 +106,10 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 			throw new \Exception('Cannot prepare invoice without `total`');
 		}
 		
-		$this->document->addLink('extension/blockonomics/catalog/view/css/order.css', "stylesheet");
-		$this->document->addScript('extension/blockonomics/catalog/view/javascript/reconnecting-websocket.min.js');
-		$this->document->addScript('extension/blockonomics/catalog/view/javascript/qrious.min.js');
-		$this->document->addScript('extension/blockonomics/catalog/view/javascript/checkout.js');
+		$this->document->addLink($this->getAssetUrl('catalog/view/css/order.css'), "stylesheet");
+		$this->document->addScript($this->getAssetUrl('catalog/view/javascript/reconnecting-websocket.min.js'));
+		$this->document->addScript($this->getAssetUrl('catalog/view/javascript/qrious.min.js'));
+		$this->document->addScript($this->getAssetUrl('catalog/view/javascript/checkout.js'));
 		
 		$data['column_left'] = $this->load->controller('common/column_left');
 		$data['column_right'] = $this->load->controller('common/column_right');
@@ -306,6 +306,21 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 				return;
 		}
 
+	}
+
+	/**
+	 * Returns the URL of a CSS or JavaScript file of this extension, with a version argument
+	 *
+	 * The version is the modification time of the file. When the file changes, the URL changes,
+	 * so browsers, proxies and CDNs cannot use an old cached copy of the file.
+	 *
+	 * @param string $file Path in the extension folder (for example 'catalog/view/javascript/checkout.js')
+	 * @return string
+	 */
+	private function getAssetUrl($file) {
+		$mtime = @filemtime(DIR_EXTENSION . 'blockonomics/' . $file);
+
+		return 'extension/blockonomics/' . $file . '?v=' . ($mtime ? $mtime : $this->blockonomics->version);
 	}
 
 	/**

@@ -31,11 +31,15 @@ class Blockonomics {
             throw Error(`Blockonomics Initialisation Error: Data Object is not a valid JSON.`)
         }
 
+        // Show the order panel first, so that the payment data is visible if a later step fails
+        this._spinner_wrapper = this.container.querySelector('.bnomics-spinner-wrapper')
+        this._order_panel = this.container.querySelector('.bnomics-order-panel')
+        if (this._spinner_wrapper) this._spinner_wrapper.style.display = 'none'
+        if (this._order_panel) this._order_panel.style.display = 'block'
+
         this.create_bindings()
         
         this.reset_progress()
-        this._spinner_wrapper.style.display = 'none'
-        this._order_panel.style.display = 'block'
         this.generate_qr()
         this.connect_to_ws()
         
@@ -71,30 +75,26 @@ class Blockonomics {
 
         // Click Bindings
 
+        // Click bindings are optional: a template can leave out an element
+        const on_click = (element, handler) => {
+            if (element) {
+                element.addEventListener('click', (e) => {
+                    e.preventDefault()
+                    handler()
+                })
+            }
+        }
+
         // Copy bitcoin address to clipboard
-        this._address_copy.addEventListener('click', (e) => {
-            e.preventDefault()
-            this.copy_to_clipboard("bnomics-address-input")
-        })
+        on_click(this._address_copy, () => this.copy_to_clipboard("bnomics-address-input"))
         
         // Copy bitcoin amount to clipboard
-        this._amount_copy.addEventListener('click', (e) => {
-            e.preventDefault()
-            this.copy_to_clipboard("bnomics-amount-input")
-        })
+        on_click(this._amount_copy, () => this.copy_to_clipboard("bnomics-amount-input"))
         
-        // QR Handler (optional: the QR code is always shown, a template can still add a #bnomics-show-qr toggle)
-        if (this._show_qr) {
-            this._show_qr.addEventListener('click', (e) => {
-                e.preventDefault()
-                this.toggle_qr()
-            })
-        }
+        // QR Handler (the QR code is always shown, a template can still add a #bnomics-show-qr toggle)
+        on_click(this._show_qr, () => this.toggle_qr())
         
-        this._refresh.addEventListener('click', (e) => {
-            e.preventDefault()
-            this.refresh_order()
-        })
+        on_click(this._refresh, () => this.refresh_order())
 
         this.data.time_period = Number(this.data.time_period)
     }

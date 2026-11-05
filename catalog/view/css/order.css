@@ -206,8 +206,10 @@ svg {
 }
 
 /** Hide Panels by Default **/
+/* The order panel is not hidden: if JavaScript does not run (error, blocked or old cached file),
+   the customer still sees the address, the amount and the 'Open in wallet' link. */
 
-#blockonomics_checkout .bnomics-order-container .bnomics-order-panel,
+#blockonomics_checkout .bnomics-order-container .bnomics-spinner-wrapper,
 #blockonomics_checkout .bnomics-order-container .bnomics-copy-amount-text,
 #blockonomics_checkout .bnomics-order-container .bnomics-copy-address-text {
   display: none;
