@@ -49,6 +49,7 @@ $_['entry_send_server_info'] = 'Send Server Information';
 
 // Help
 $_['help_underpayment_slack'] = 'Allow payments that are off by a small percentage';
+$_['help_callback_url']       = 'On the Blockonomics Dashboard (Stores), set the HTTP Callback URL of your store to this URL.';
 
 // Warning
 $_['warning_permission']        = 'Warning: You do not have permission to modify the Blockonomics payment module.';
@@ -65,9 +66,11 @@ $_['error_callback_test_setup']                 = 'There is a problem in your ca
 $_['congrats'] = 'Congrats ! Setup is all done';
 $_['error_blockedHttps'] = 'Your server is blocking outgoing HTTPS calls';
 $_['error_incorrectApi'] = 'API Key is incorrect';
-$_['error_noXpub'] = 'You have not entered an xpub';
-$_['error_existingCallbackUrl'] = 'Your have an existing callback URL. Refer instructions on integrating multiple websites';
-$_['error_multipleXpubs'] = 'Your have an existing callback URL or multiple xPubs. Refer instructions on integrating multiple websites';
+$_['error_noSecret'] = 'The callback secret is empty. Click Generate Secret, save the settings and add the new Callback URL to your Blockonomics store.';
+$_['error_invalidResponse'] = 'Invalid response was received from Blockonomics. Please retry.';
+$_['error_noStore'] = 'Please add a <a href="https://www.blockonomics.co/dashboard#/store" target="_blank"><i>Store</i></a> on the Blockonomics Dashboard. Use the Callback URL shown below as the HTTP Callback URL of the store.';
+$_['error_noMatchingStore'] = 'No Blockonomics store has the Callback URL shown below. Please add a <a href="https://www.blockonomics.co/dashboard#/store" target="_blank">new store</a> (or edit your store) and set its HTTP Callback URL to the Callback URL shown below. Then save the settings and click Test Setup again.';
+$_['error_noBtcWallet'] = 'Please enable the Bitcoin (BTC) payment method on your <a href="https://www.blockonomics.co/dashboard#/store" target="_blank"><i>Blockonomics store</i></a>.';
 
 // Log
 $_['log_error_install']          = 'The Blockonomics payment extension was not installed correctly or the files are corrupt. Please reinstall the extension. If this message persists after a reinstall, contact support@blockonomics.co with this message.';

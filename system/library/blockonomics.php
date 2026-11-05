@@ -26,8 +26,8 @@ class Blockonomics {
   /** @var string $blockonomics_price_url */
   public $blockonomics_price_url;
 
-  /** @var string $blockonomics_get_callback_url */
-  public $blockonomics_get_callback_url;
+  /** @var string $blockonomics_stores_url */
+  public $blockonomics_stores_url;
 
 	/**
 	 * Blockonomics Library constructor
@@ -47,8 +47,8 @@ class Blockonomics {
     //$blockonomics_base_url = 'http://localhost:8080';
     //$this->blockonomics_websocket_url = 'ws://localhost:8080';
     $this->blockonomics_new_address_url = $blockonomics_base_url.'/api/new_address';
-    $this->blockonomics_price_url = $blockonomics_base_url.'/api/price?currency=';
-    $this->blockonomics_get_callback_url = $blockonomics_base_url.'/api/address?&no_balance=true&only_xpub=true&get_callback=true';
+    $this->blockonomics_price_url = $blockonomics_base_url.'/api/price';
+    $this->blockonomics_stores_url = $blockonomics_base_url.'/api/v2/stores?wallets=true';
     $this->setting('debug', 0);
 	}
 
@@ -80,22 +80,6 @@ class Blockonomics {
     return $route . $this->getMethodSeparator() . $method;
   }
 
-  /**
-   * Makes a callback URL comparable when only the secret or the method separator is different.
-   *
-   * Callback URLs made by OpenCart 4.0.0.0 - 4.0.1.x contain '|callback'.
-   * Callback URLs made by OpenCart 4.0.2.0 and later contain '.callback'.
-   * Both URLs go to the same callback method.
-   *
-   * @param string $url
-   * @return string
-   */
-  public function normalizeCallbackUrl($url) {
-    $url = str_replace(array('&amp;', '%7C', '%7c', '|'), array('&', '.', '.', '.'), (string)$url);
-
-    return preg_replace('/([?&])secret=[^&]*/', '$1secret=', $url);
-  }
-
 	/**
 	 * Magic getter for Registry items
 	 *
@@ -107,56 +91,115 @@ class Blockonomics {
 		return $this->registry->get($name);
 	}
 
-  /*
-   * Make a request using curl
+  /**
+   * Sends a request to the Blockonomics API
+   *
+   * The request format is the same as in the current Blockonomics WooCommerce plugin:
+   * JSON content type, 'Authorization: Bearer <API key>', short timeouts.
+   *
+   * @param string $method 'GET' or 'POST'
+   * @param string $url Full URL with the query string
+   * @param bool $auth Send the API key
+   * @return \stdClass response_code (0 if the request failed), body, data (decoded JSON or null), curl_error
    */
-  public function doCurlCall($url, $post_content = '')
-  {
-      $ch = curl_init();
-      curl_setopt($ch, CURLOPT_URL, $url);
-      curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-      if ($post_content) {
-          curl_setopt($ch, CURLOPT_POST, 1);
-          curl_setopt($ch, CURLOPT_POSTFIELDS, $post_content);
-      }
-      curl_setopt($ch, CURLOPT_TIMEOUT, 60);
-      curl_setopt(
-          $ch,
-          CURLOPT_HTTPHEADER,
-          [
-              'Authorization: Bearer ' . $this->setting('api_key'),
-              'Content-type: application/x-www-form-urlencoded',
-          ]
-      );
-      $data = curl_exec($ch);
-      $httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-      curl_close($ch);
+  private function request($method, $url, $auth = true) {
+    $headers = array('Content-Type: application/json');
 
-      $responseObj = new \stdClass();
-      $responseObj->data = json_decode($data);
-      $responseObj->response_code = $httpcode;
-      return $responseObj;
-  }
-
-  public function getBTCPrice() {
-    //Getting price
-    $currency_code = $this->config->get('config_currency');
-    $url = $this->blockonomics_price_url.$currency_code;
+    if ($auth) {
+      $headers[] = 'Authorization: Bearer ' . $this->setting('api_key');
+    }
 
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 60);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
 
-    $data = curl_exec($ch);
-    curl_close($ch);
-
-    $responseObj = json_decode($data);
-    if (!isset($responseObj) || !isset($responseObj->price)) {
-      return '';
+    if ($method == 'POST') {
+      curl_setopt($ch, CURLOPT_POST, true);
+      curl_setopt($ch, CURLOPT_POSTFIELDS, '');
     }
 
-    return $responseObj->price;
+    $body = curl_exec($ch);
+
+    $response = new \stdClass();
+    $response->response_code = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    $response->curl_error = ($body === false) ? curl_error($ch) : '';
+    $response->body = ($body === false) ? '' : (string)$body;
+    $response->data = ($response->body !== '') ? json_decode($response->body) : null;
+
+    // Note: curl_close() is not used. It does nothing since PHP 8.0 and it is deprecated in PHP 8.5.
+    unset($ch);
+
+    if ($response->curl_error !== '') {
+      $response->response_code = 0;
+      $this->log('error', 'Request to ' . strtok($url, '?') . ' failed: ' . $response->curl_error);
+    }
+
+    return $response;
+  }
+
+  /**
+   * Returns the error message in an API response ('message' or 'error.message'), or an empty string
+   *
+   * @param \stdClass $response Response from request()
+   * @return string
+   */
+  private function getApiErrorMessage($response) {
+    if (isset($response->data->message) && is_string($response->data->message)) {
+      return $response->data->message;
+    }
+
+    if (isset($response->data->error->message) && is_string($response->data->error->message)) {
+      return $response->data->error->message;
+    }
+
+    return '';
+  }
+
+  /**
+   * Gets the price of 1 BTC in a fiat currency
+   *
+   * GET /api/price?currency=<fiat>&crypto=BTC
+   * The API returns {"price": null} for a currency that Blockonomics does not support.
+   *
+   * @param string $currency_code Fiat currency code (for example 'USD')
+   * @return \stdClass price (number, or '' on error) and error (message, or '')
+   */
+  public function fetchBTCPrice($currency_code) {
+    $result = new \stdClass();
+    $result->price = '';
+    $result->error = '';
+
+    $url = $this->blockonomics_price_url . '?' . http_build_query(array('currency' => $currency_code, 'crypto' => 'BTC'));
+    $response = $this->request('GET', $url, false);
+
+    if ($response->response_code == 0) {
+      $result->error = 'blockedHttps';
+    } elseif (is_object($response->data) && property_exists($response->data, 'price') && $response->data->price === null) {
+      $result->error = 'Currency ' . $currency_code . ' is not supported by Blockonomics';
+    } elseif ($response->response_code != 200 || !isset($response->data->price) || !is_numeric($response->data->price) || $response->data->price <= 0) {
+      $message = $this->getApiErrorMessage($response);
+      $result->error = ($message !== '') ? $message : 'Could not get the BTC price. HTTP status: ' . $response->response_code;
+    } else {
+      $result->price = $response->data->price;
+    }
+
+    if ($result->error !== '') {
+      $this->log('error', 'Price API: ' . $result->error);
+    }
+
+    return $result;
+  }
+
+  /**
+   * Gets the price of 1 BTC in the default store currency
+   *
+   * @return float|string Price, or '' on error
+   */
+  public function getBTCPrice() {
+    return $this->fetchBTCPrice($this->config->get('config_currency'))->price;
   }
 
   /**
@@ -192,136 +235,192 @@ class Blockonomics {
     }
   }
 
-  /*
-   * Get new address from Blockonomics Api
+  /**
+   * Gets a new BTC address from the Blockonomics API
+   *
+   * POST /api/new_address?match_callback=secret%3D<secret>&crypto=BTC[&reset=1]
+   *
+   * 'match_callback' is a part of the HTTP callback URL of the Blockonomics store.
+   * Blockonomics uses it to find the correct store if the account has more than one store.
+   * The current WooCommerce plugin sends 'secret=<callback secret>'. An empty value is not sent,
+   * because an empty value matches all stores.
+   *
+   * @param bool $reset Send 'reset=1' (used by Test Setup)
+   * @return \stdClass response_code (0 if the request failed), address ('' on error), message (error message from the API)
    */
   public function getNewAddress($reset = false)
   {
-      $api_key = $this->setting('api_key');
-      $callback_secret = $this->setting('callback_secret');
+      $params = array();
+
+      $callback_secret = (string)$this->setting('callback_secret');
+
+      if ($callback_secret !== '') {
+          $params['match_callback'] = 'secret=' . $callback_secret;
+      }
+
+      $params['crypto'] = 'BTC';
 
       if ($reset) {
-          $get_params = "?match_callback=$callback_secret&reset=1";
-      } else {
-          $get_params = "?match_callback=$callback_secret";
+          $params['reset'] = 1;
       }
 
-      $ch = curl_init();
+      $response = $this->request('POST', $this->blockonomics_new_address_url . '?' . http_build_query($params));
 
-      curl_setopt($ch, CURLOPT_URL, 'https://www.blockonomics.co/api/new_address' . $get_params);
-      curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-      curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'POST');
+      $result = new \stdClass();
+      $result->response_code = $response->response_code;
+      $result->address = (isset($response->data->address) && is_string($response->data->address)) ? $response->data->address : '';
+      $result->message = $this->getApiErrorMessage($response);
 
-      $header = 'Authorization: Bearer ' . $api_key;
-      $headers = [];
-      $headers[] = $header;
-      curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
-
-      $contents = curl_exec($ch);
-      if (curl_errno($ch)) {
-          exit('Error:' . curl_error($ch));
+      if ($result->response_code != 200 || $result->address === '') {
+          $this->log('error', 'New address API: HTTP status ' . $result->response_code . ' ' . ($result->message !== '' ? $result->message : $response->body));
       }
 
-      $responseObj = json_decode($contents);
-      //Create response object if it does not exist
-      if (!isset($responseObj)) {
-          $responseObj = new \stdClass();
-      }
-      $responseObj->{'response_code'} = curl_getinfo($ch, CURLINFO_RESPONSE_CODE );
-      curl_close($ch);
-      return $responseObj;
+      return $result;
   }
 
-  public function get_callbacks(){
-    $url =  $this->blockonomics_get_callback_url;
+  /**
+   * Finds the Blockonomics store whose HTTP callback URL has this callback secret
+   *
+   * Same logic as the current WooCommerce plugin: compare the 'secret' argument of the callback URL.
+   * If more than one store matches, use the store that has wallets.
+   *
+   * @param array $stores Stores from GET /api/v2/stores?wallets=true
+   * @param string $secret Callback secret
+   * @return object|null
+   */
+  private function findMatchingStore($stores, $secret) {
+    $best_store = null;
 
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, array(
-      'Authorization: Bearer '.$this->setting('api_key'),
-      'Content-type: application/x-www-form-urlencoded'
-    ));
+    foreach ($stores as $store) {
+      if (!is_object($store) || !isset($store->http_callback) || !is_string($store->http_callback)) {
+        continue;
+      }
 
-    $callback_data = curl_exec($ch);
-    $callback_httpcode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+      $query = parse_url(html_entity_decode($store->http_callback), PHP_URL_QUERY);
 
-    $callback_responseObj = json_decode($callback_data);
-    $response["httpcode"] = $callback_httpcode;
-      foreach($callback_responseObj as $key => $value){
-        if(isset($value->callback)){
-          $response[$key] = new \stdClass();
-          $response[$key]->callback = $value->callback;
-          $response[$key]->address = $value->address;
+      if (!is_string($query)) {
+        continue;
+      }
+
+      parse_str($query, $args);
+
+      if (isset($args['secret']) && $args['secret'] === $secret) {
+        if (!$best_store || (!empty($store->wallets) && empty($best_store->wallets))) {
+          $best_store = $store;
         }
       }
+    }
 
-    return $response;
+    return $best_store;
   }
 
+  /**
+   * Checks if a Blockonomics store has a wallet for a cryptocurrency
+   *
+   * @param object $store Store from GET /api/v2/stores?wallets=true
+   * @param string $crypto For example 'BTC'
+   * @return bool
+   */
+  private function storeHasCrypto($store, $crypto) {
+    if (empty($store->wallets) || !is_array($store->wallets)) {
+      return false;
+    }
+
+    foreach ($store->wallets as $wallet) {
+      if (isset($wallet->crypto) && is_string($wallet->crypto) && strtoupper($wallet->crypto) === strtoupper($crypto)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Tests the Blockonomics setup
+   *
+   * Same steps as the Test Setup of the current WooCommerce plugin:
+   * 1. GET /api/v2/stores?wallets=true (API key is correct, the account has stores)
+   * 2. Find the store whose HTTP callback URL has this callback secret
+   * 3. The store has a BTC wallet
+   * 4. The price API supports the store currency
+   * 5. POST /api/new_address can make a BTC address
+   *
+   * Note: The WooCommerce plugin stopped using the old '/api/address?only_xpub=true&get_callback=true'
+   * and '/api/update_callback' endpoints in 2024, when Blockonomics changed to stores.
+   * The store owner adds the callback URL to a store on the Blockonomics dashboard.
+   *
+   * @return string Empty string if the setup is correct, else an error key (see the admin language file) or an error message
+   */
   public function testsetup()
   {
-    $api_key = $this->setting('api_key');
-    
-    if (!isset($api_key) || strlen($api_key) == 0) {
+    $api_key = (string)$this->setting('api_key');
+
+    if ($api_key === '') {
       return 'api_key';
     }
-    
-    $xpub_fetch_url = 'https://www.blockonomics.co/api/address?&no_balance=true&only_xpub=true&get_callback=true';
-    $set_callback_url = 'https://www.blockonomics.co/api/update_callback';
-    $error_str = '';
 
-    $response = $this->doCurlCall($xpub_fetch_url);
+    $secret = (string)$this->setting('callback_secret');
 
-    $secret = $this->setting('callback_secret');
-    $callback_url = htmlspecialchars_decode($this->setting('callback_url'));
-    
-    if (!isset($response->response_code)) {
-        $error_str = 'blockedHttps';
-    } elseif ($response->response_code == 401) {
-        $error_str = 'incorrectApi';
-    } elseif ($response->response_code != 200) {
-        $error_str = $response->data;
-    } elseif (!isset($response->data) || count($response->data) == 0) {
-        $error_str = 'noXpub';
-    } elseif (count($response->data) == 1) {
-        if (!$response->data[0]->callback || $response->data[0]->callback == null) {
-            //No callback URL set, set one
-            $post_content = '{"callback": "' . $callback_url . '", "xpub": "' . $response->data[0]->address . '"}';
-            $this->doCurlCall($set_callback_url, $post_content);
-        } elseif ($response->data[0]->callback != $callback_url) {
-            // Check if only secret (or the '|' / '.' method separator) differs
-            if ($this->normalizeCallbackUrl($response->data[0]->callback) == $this->normalizeCallbackUrl($callback_url)) {
-                //Looks like the user regenrated callback by mistake
-                //Just force Update_callback on server
-                $post_content = '{"callback": "' . $callback_url . '", "xpub": "' . $response->data[0]->address . '"}';
-                $this->doCurlCall($set_callback_url, $post_content);
-            } else {
-                $error_str = 'existingCallbackUrl';
-            }
-        }
-    } else {
-        $error_str = 'multipleXpubs';
-
-        foreach ($response->data as $resObj) {
-            if ($resObj->callback == $callback_url) {
-                // Matching callback URL found, set error back to empty
-                $error_str = '';
-            }
-        }
+    if ($secret === '') {
+      return 'noSecret';
     }
 
-    if ($error_str == '') {
-        // Test new address generation
-        $new_addresss_response = $this->getNewAddress(true);
-        if ($new_addresss_response->response_code != 200) {
-            $error_str = isset($new_addresss_response->message) ? $new_addresss_response->message : 'Could not generate new address. HTTP status: ' . $new_addresss_response->response_code;
-        }
+    // 1. Stores
+    $response = $this->request('GET', $this->blockonomics_stores_url);
+
+    if ($response->response_code == 0) {
+      return 'blockedHttps';
     }
 
-    return $error_str;
+    if ($response->response_code == 401) {
+      return 'incorrectApi';
+    }
 
+    if ($response->response_code != 200) {
+      $message = $this->getApiErrorMessage($response);
+
+      return ($message !== '') ? $message : 'API error. HTTP status: ' . $response->response_code;
+    }
+
+    if (!isset($response->data->data) || !is_array($response->data->data)) {
+      return 'invalidResponse';
+    }
+
+    if (empty($response->data->data)) {
+      return 'noStore';
+    }
+
+    // 2. Store with this callback URL
+    $store = $this->findMatchingStore($response->data->data, $secret);
+
+    if (!$store) {
+      return 'noMatchingStore';
+    }
+
+    // 3. BTC wallet on the store
+    if (!$this->storeHasCrypto($store, 'BTC')) {
+      return 'noBtcWallet';
+    }
+
+    // 4. Price for the store currency
+    $price = $this->fetchBTCPrice($this->config->get('config_currency'));
+
+    if ($price->error !== '') {
+      return $price->error;
+    }
+
+    // 5. New address
+    $new_address = $this->getNewAddress(true);
+
+    if ($new_address->response_code == 0) {
+      return 'blockedHttps';
+    }
+
+    if ($new_address->response_code != 200 || $new_address->address === '') {
+      return ($new_address->message !== '') ? $new_address->message : 'Could not generate new address. HTTP status: ' . $new_address->response_code;
+    }
+
+    return '';
   }
 
 	/**
@@ -369,6 +468,19 @@ class Blockonomics {
 		// Get the setting
 		return $this->config->get($key);
 	}
+
+  /**
+   * Returns the Blockonomics page of a BTC transaction
+   *
+   * The WooCommerce plugin uses this format since 2024. The old '/api/tx?txid=' link is used only for BCH there.
+   *
+   * @param string $txid
+   * @param string $addr
+   * @return string
+   */
+  public function getTxUrl($txid, $addr) {
+    return 'https://www.blockonomics.co/#/search?' . http_build_query(array('q' => $txid, 'addr' => $addr));
+  }
 
   public function get_crypto_rate_from_params($value, $satoshi) {
     // Crypto Rate is re-calculated here and may slightly differ from the rate provided by Blockonomics

@@ -152,7 +152,7 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		// If there is no existing order in database, generate Bitcoin address
 		if(!isset($order['id_order'])){
 			$response = $this->blockonomics->getNewAddress();
-			if($response->response_code == 200) {
+			if($response->response_code == 200 && $response->address !== '') {
 				$btc_address=$response->address;
 				$data['btc_address'] = $btc_address;
 				$data['btc_href'] = "bitcoin:".$btc_address."?amount=".$satoshi_amount;
@@ -206,19 +206,23 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		$this->load->model('checkout/order');
 
 		//Get parameters from callback url
+		// Blockonomics sends: secret, addr, status (0 = unconfirmed, 1 = partially confirmed, 2 = confirmed),
+		// value (satoshi), txid and, only for unconfirmed Replace-By-Fee transactions, rbf.
 		$secret = isset($this->request->get['secret']) ? (string)$this->request->get['secret'] : '';
 		$txid = isset($this->request->get['txid']) ? (string)$this->request->get['txid'] : '';
 		$value = isset($this->request->get['value']) ? (int)$this->request->get['value'] : 0;
 		$status = isset($this->request->get['status']) ? (string)$this->request->get['status'] : '';
 		$addr = isset($this->request->get['addr']) ? (string)$this->request->get['addr'] : '';
+		$rbf = !empty($this->request->get['rbf']);
 
 		if($secret === '' || $this->setting('callback_secret') != $secret) {
 			die('Invalid secret');
 		}
 
-		//Upate order info
-		$query="UPDATE ".DB_PREFIX."blockonomics_bitcoin_orders SET status='".(int)$status."',txid='".$this->db->escape($txid)."',bits_payed=".(int)$value." WHERE addr='".$this->db->escape($addr)."'";
-		$this->db->query($query);
+		if (!in_array($status, array('0', '1', '2'), true)) {
+			$this->blockonomics->log('error', 'Callback with unknown status "'.$status.'" for address '.$addr.' is ignored.');
+			return;
+		}
 
 		$sql = $this->db->query("SELECT * FROM ".DB_PREFIX."blockonomics_bitcoin_orders WHERE `addr` = '".$this->db->escape($addr)."' LIMIT 1");
 		$order = $sql->row;
@@ -228,11 +232,36 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 			return;
 		}
 
+		// A confirmed address ignores all other callbacks (Blockonomics can send a callback again)
+		if ((int)$order['status'] === 2) {
+			$this->blockonomics->log('info', 'Callback ignored, payment to '.$addr.' is already confirmed.');
+			return;
+		}
+
+		$where = " WHERE addr='".$this->db->escape($addr)."' AND status < 2";
+
+		// An unconfirmed Replace-By-Fee transaction can still be cancelled by the sender:
+		// keep only the transaction id (same as the Blockonomics WooCommerce plugin).
+		if ($rbf) {
+			$this->db->query("UPDATE ".DB_PREFIX."blockonomics_bitcoin_orders SET txid='".$this->db->escape($txid)."'".$where);
+			$this->blockonomics->log('info', 'RBF transaction '.$txid.' to '.$addr.' is not used until it is confirmed.');
+			return;
+		}
+
+		//Upate order info. Only one callback can change the status to 2 (confirmed).
+		$this->db->query("UPDATE ".DB_PREFIX."blockonomics_bitcoin_orders SET status='".(int)$status."',txid='".$this->db->escape($txid)."',bits_payed=".(int)$value.$where);
+
+		if ((int)$status === 2 && $this->db->countAffected() < 1) {
+			$this->blockonomics->log('info', 'Callback ignored, payment to '.$addr.' was confirmed by another callback.');
+			return;
+		}
+
 		$comment = "";
 		$bits = $order['bits'];
 		$expected = $bits / 1.0e8;
 		$real_paid = $value / 1.0e8;
 		$paid = $value / 1.0e8;
+		$tx_url = $this->blockonomics->getTxUrl($txid, $addr);
 
 		$underpayment_slack = $this->setting('underpayment_slack') / 100 * $bits;
 		if ($value < $bits - $underpayment_slack) {
@@ -243,11 +272,15 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 
 		switch ($status) {
 			case 0:
+				// Add the history only for the first unconfirmed callback, so that the customer gets only one e-mail
+				if ((int)$order['status'] !== -1) {
+					break;
+				}
 				$order_status_id = '1';
 				$comment = "Waiting for Confirmation on Bitcoin network<br>" .
 							"Bitcoin transaction id: $txid <br>" .
 							"You can view the transaction at: <br>" .
-							"<a href='https://www.blockonomics.co/api/tx?txid=$txid&addr=$addr' target='_blank'>https://www.blockonomics.co/api/tx?txid=$txid&addr=$addr</a>";
+							"<a href='$tx_url' target='_blank'>$tx_url</a>";
 				// Progress the order status
 				$this->model_checkout_order->addHistory((int)$order['id_order'], (int)$order_status_id, $comment, true);
 				break;
@@ -264,7 +297,7 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 						"Expected amount: $expected BTC\r" .
 						"Paid amount: $real_paid BTC\r" .
 						"You can view the transaction at:\r" .
-						"<a href='https://www.blockonomics.co/api/tx?txid=$txid&addr=$addr' target='_blank'>https://www.blockonomics.co/api/tx?txid=$txid&addr=$addr</a>";
+						"<a href='$tx_url' target='_blank'>$tx_url</a>";
 				// Progress the order status
 				$this->model_checkout_order->addHistory((int)$order['id_order'], (int)$order_status_id, $comment, true);
 				break;
