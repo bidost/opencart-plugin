@@ -17,6 +17,9 @@ $_['text_popup']             = 'It appears your browser is blocking Blockonomics
 $_['text_are_you_sure']      = 'Are you sure?';
 $_['text_gen_secret']        = 'Generate Secret';
 $_['text_test_setup']        = 'Test Setup';
+$_['text_store_name']        = 'Blockonomics store';
+$_['text_default_title']     = 'Bitcoin';
+$_['text_confirmation_recommended'] = '2 (Recommended)';
 
 // Tab
 $_['tab_settings']           = 'Settings';
@@ -39,6 +42,10 @@ $_['entry_complete_status']     = 'Order Status';
 $_['entry_callback_url']     = 'Callback URL';
 $_['entry_api_key']          = 'API Key';
 $_['entry_underpayment_slack'] = 'Underpayment Slack %';
+$_['entry_extra_margin']     = 'Extra Currency Rate Margin %';
+$_['entry_network_confirmation'] = 'Network Confirmations';
+$_['entry_title']            = 'Title';
+$_['entry_description']      = 'Description';
 $_['entry_debug']            = 'Debug Logging';
 $_['entry_name']             = 'Name';
 $_['entry_email_address']    = 'Email Address';
@@ -48,7 +55,11 @@ $_['entry_send_logs']        = 'Send Blockonomics Log';
 $_['entry_send_server_info'] = 'Send Server Information';
 
 // Help
-$_['help_underpayment_slack'] = 'Allow payments that are off by a small percentage';
+$_['help_underpayment_slack'] = 'Allow payments that are off by a small percentage (0-20%). A payment that is less than the expected amount minus this percentage cancels the order.';
+$_['help_extra_margin']       = 'Increase live fiat to BTC rate by small percent (0-4%). The customer pays this percentage more BTC.';
+$_['help_network_confirmation'] = 'Network confirmations required for the payment to complete. With 0, the order is complete when the transaction is seen on the network. Unconfirmed Replace-By-Fee transactions are never accepted.';
+$_['help_title']              = 'Payment method name that the customer sees during checkout. Leave empty to use the default name.';
+$_['help_description']        = 'Text that the customer sees above the confirm button during checkout. Leave empty to show no text.';
 $_['help_callback_url']       = 'On the Blockonomics Dashboard (Stores), set the HTTP Callback URL of your store to this URL.';
 
 // Warning
@@ -60,6 +71,9 @@ $_['warning_disconnected']      = 'Warning: You are no longer connected to Block
 $_['error_permission']                 = 'Warning: You do not have permission to modify the Blockonomics payment module!';
 $_['error_callback_url']                    = '`Notification URL` needs to be a valid URL';
 $_['error_api_key']                    = '`Blocknomics API Key` should not be empty';
+$_['error_extra_margin']               = '`Extra Currency Rate Margin %` must be a number from 0 to 4';
+$_['error_underpayment_slack']         = '`Underpayment Slack %` must be a number from 0 to 20';
+$_['error_network_confirmation']       = '`Network Confirmations` must be 0, 1 or 2';
 $_['error_callback_test_setup']                 = 'There is a problem in your callback url';
 
 // Test Setup

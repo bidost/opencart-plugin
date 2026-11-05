@@ -75,17 +75,12 @@ class Blockonomics extends \Opencart\System\Engine\Model {
 	}
 
 	/**
-	 * Returns the payment method title
-	 *
-	 * The language file is loaded again, because other payment extensions
-	 * can change the 'text_title' value after this model was made.
+	 * Returns the payment method title ('Title' setting for the customer language, or 'Bitcoin')
 	 *
 	 * @return string
 	 */
 	private function getTitle() {
-		$this->load->language('extension/blockonomics/payment/blockonomics');
-
-		return $this->language->get('text_title');
+		return $this->blockonomics->getTitle();
 	}
 
 	/**

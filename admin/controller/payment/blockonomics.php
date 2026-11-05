@@ -96,6 +96,20 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		$data['blockonomics_callback_secret'] = $this->config->get('payment_blockonomics_callback_secret');
 		$data['blockonomics_api_key'] = $this->config->get('payment_blockonomics_api_key');
 		$data['blockonomics_underpayment_slack'] = $this->config->get('payment_blockonomics_underpayment_slack');
+		$data['blockonomics_extra_margin'] = $this->config->get('payment_blockonomics_extra_margin');
+		$data['blockonomics_network_confirmation'] = $this->getNetworkConfirmation();
+		$data['blockonomics_store_name'] = $this->config->get('payment_blockonomics_store_name');
+
+		#CHECKOUT TEXTS (one value for each store language)
+		$this->load->model('localisation/language');
+		$data['languages'] = $this->model_localisation_language->getLanguages();
+		$data['blockonomics_title'] = array();
+		$data['blockonomics_description'] = array();
+
+		foreach ($data['languages'] as $language) {
+			$data['blockonomics_title'][$language['language_id']] = $this->config->get('payment_blockonomics_title_' . $language['language_id']);
+			$data['blockonomics_description'][$language['language_id']] = $this->config->get('payment_blockonomics_description_' . $language['language_id']);
+		}
 
     #ORDER STATUSES
 		$this->load->model('localisation/order_status');
@@ -115,35 +129,76 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 
 		$json = [];
 
+		$post = $this->request->post;
+
 		if (!$this->user->hasPermission('modify', 'extension/blockonomics/payment/blockonomics')) {
 			$json['error'] = $this->language->get('error_permission');
 		}
 
-		if (!empty($this->request->post['payment_blockonomics_callback_url']) && false === filter_var($this->request->post['payment_blockonomics_callback_url'], FILTER_VALIDATE_URL)) {
+		if (!empty($post['payment_blockonomics_callback_url']) && false === filter_var($post['payment_blockonomics_callback_url'], FILTER_VALIDATE_URL)) {
 			$json['error'] = $this->language->get('error_callback_url');
 		}
 
-		if (empty($this->request->post['payment_blockonomics_api_key'])) {
+		if (empty($post['payment_blockonomics_api_key'])) {
 			$json['error'] = $this->language->get('error_api_key');
+		}
+
+		// Same limits as the Blockonomics WooCommerce plugin
+		$extra_margin = isset($post['payment_blockonomics_extra_margin']) && $post['payment_blockonomics_extra_margin'] !== '' ? $post['payment_blockonomics_extra_margin'] : '0';
+
+		if (!is_numeric($extra_margin) || $extra_margin < 0 || $extra_margin > 4) {
+			$json['error'] = $this->language->get('error_extra_margin');
+		}
+
+		$underpayment_slack = isset($post['payment_blockonomics_underpayment_slack']) && $post['payment_blockonomics_underpayment_slack'] !== '' ? $post['payment_blockonomics_underpayment_slack'] : '0';
+
+		if (!is_numeric($underpayment_slack) || $underpayment_slack < 0 || $underpayment_slack > 20) {
+			$json['error'] = $this->language->get('error_underpayment_slack');
+		}
+
+		$network_confirmation = isset($post['payment_blockonomics_network_confirmation']) ? (string)$post['payment_blockonomics_network_confirmation'] : '2';
+
+		if (!in_array($network_confirmation, array('0', '1', '2'), true)) {
+			$json['error'] = $this->language->get('error_network_confirmation');
 		}
 
 		if (!$json) {
 
+			$keys = array('geo_zone_id', 'status', 'sort_order', 'callback_secret', 'callback_url', 'api_key', 'complete_status');
+
+			$setting = array();
+
+			foreach ($keys as $key) {
+				$setting['payment_blockonomics_' . $key] = isset($post['payment_blockonomics_' . $key]) ? $post['payment_blockonomics_' . $key] : '';
+			}
+
+			$setting['payment_blockonomics_extra_margin'] = $extra_margin;
+			$setting['payment_blockonomics_underpayment_slack'] = $underpayment_slack;
+			$setting['payment_blockonomics_network_confirmation'] = $network_confirmation;
+
+			// Checkout title and description for each language
+			$this->load->model('localisation/language');
+
+			foreach ($this->model_localisation_language->getLanguages() as $language) {
+				foreach (array('title', 'description') as $key) {
+					$name = 'payment_blockonomics_' . $key . '_' . $language['language_id'];
+					$setting[$name] = isset($post[$name]) ? $post[$name] : '';
+				}
+			}
+
+			// Values that the form does not send. editSetting() deletes all values of the extension first.
+			// The store name comes from Test Setup: clear it if the API key changes.
+			if ($setting['payment_blockonomics_api_key'] == $this->config->get('payment_blockonomics_api_key')) {
+				$setting['payment_blockonomics_store_name'] = (string)$this->config->get('payment_blockonomics_store_name');
+			} else {
+				$setting['payment_blockonomics_store_name'] = '';
+			}
+
+			$setting['payment_blockonomics_version'] = $this->blockonomics->version;
+
 			$this->load->model('setting/setting');
 
-			$this->model_setting_setting->editSetting(
-				'payment_blockonomics',
-				array(
-					'payment_blockonomics_geo_zone_id' => $this->request->post['payment_blockonomics_geo_zone_id'],
-					'payment_blockonomics_status' => $this->request->post['payment_blockonomics_status'],
-					'payment_blockonomics_sort_order' => $this->request->post['payment_blockonomics_sort_order'],
-					'payment_blockonomics_callback_secret' => $this->request->post['payment_blockonomics_callback_secret'],
-					'payment_blockonomics_callback_url' => $this->request->post['payment_blockonomics_callback_url'],
-					'payment_blockonomics_api_key' => $this->request->post['payment_blockonomics_api_key'],
-					'payment_blockonomics_underpayment_slack' => $this->request->post['payment_blockonomics_underpayment_slack'],
-					'payment_blockonomics_complete_status' => $this->request->post['payment_blockonomics_complete_status']
-				)
-			);
+			$this->model_setting_setting->editSetting('payment_blockonomics', $setting);
 			
 			$json['success'] = $this->language->get('text_success');
 		}
@@ -187,6 +242,9 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 
 				$json['error'] = ($message != $key) ? $message : $response;
 			}
+
+			// Test Setup saves the name of the matching Blockonomics store
+			$json['store_name'] = (string)$this->config->get('payment_blockonomics_store_name');
 		}
 
 		$this->response->addHeader('Content-Type: application/json');
@@ -229,6 +287,9 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 			'payment_blockonomics_callback_url' => $default_callback_url,
 			'payment_blockonomics_api_key' => '',
 			'payment_blockonomics_underpayment_slack' => '0',
+			'payment_blockonomics_extra_margin' => '0',
+			'payment_blockonomics_network_confirmation' => '2',
+			'payment_blockonomics_store_name' => '',
 			'payment_blockonomics_version' => $this->blockonomics->version,
 			'payment_blockonomics_complete_status' => $default_complete_status
 		);
@@ -260,6 +321,19 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		$this->load->model('setting/setting');
 		$this->model_setting_setting->deleteSetting('payment_blockonomics');
 		$this->db->query('DROP TABLE IF EXISTS `' .DB_PREFIX. 'blockonomics_bitcoin_orders`;');
+	}
+
+	/**
+	 * Returns the number of network confirmations that completes a payment (0, 1 or 2, default 2)
+	 *
+	 * Installations of earlier versions do not have this setting.
+	 *
+	 * @return string
+	 */
+	private function getNetworkConfirmation() {
+		$value = (string)$this->config->get('payment_blockonomics_network_confirmation');
+
+		return in_array($value, array('0', '1', '2'), true) ? $value : '2';
 	}
 
 	/**

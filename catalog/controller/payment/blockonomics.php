@@ -42,6 +42,9 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		$data['url_redirect'] = $this->url->link($this->blockonomics->route('extension/blockonomics/payment/blockonomics', 'invoice'), $this->getLanguageArgs());
 		$data['button_confirm'] = $this->language->get('button_confirm');
 
+		// 'Description' setting for the customer language (same behaviour as the core bank transfer instructions)
+		$data['description'] = nl2br(trim((string)$this->config->get('payment_blockonomics_description_' . (int)$this->config->get('config_language_id'))));
+
 		if (isset($this->session->data['error_blockonomics'])) {
 			unset($this->session->data['error_blockonomics']);
 		}
@@ -72,7 +75,7 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 			return;
 		}
 
-		$this->document->setTitle($this->language->get('text_title'));
+		$this->document->setTitle($this->blockonomics->getTitle());
 
 		$data['breadcrumbs'] = array();
 
@@ -130,7 +133,8 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		}
 
 		$fiat_amount = $order_info['total'];
-		$bits = intval(1.0e8*$fiat_amount/$price);
+		// 'Extra Currency Rate Margin %' setting, same formula and rounding as the WooCommerce plugin
+		$bits = (int)round(1.0e8*$fiat_amount/$this->blockonomics->getAdjustedPrice($price));
 		$satoshi_amount = $this->blockonomics->fix_displaying_small_values($bits);
 		$data['satoshi_amount'] = $satoshi_amount;
 		$data['fiat_amount'] = number_format($fiat_amount, 2);
@@ -248,64 +252,53 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 			return;
 		}
 
-		//Upate order info. Only one callback can change the status to 2 (confirmed).
-		$this->db->query("UPDATE ".DB_PREFIX."blockonomics_bitcoin_orders SET status='".(int)$status."',txid='".$this->db->escape($txid)."',bits_payed=".(int)$value.$where);
+		// 'Network Confirmations' setting (0, 1 or 2, same as the WooCommerce plugin):
+		// the payment is final when the callback status is equal to or more than this value.
+		$is_final = ((int)$status >= $this->blockonomics->getNetworkConfirmation());
 
-		if ((int)$status === 2 && $this->db->countAffected() < 1) {
+		// Update order info. Row status 2 means 'final': only one callback can make the payment final.
+		$this->db->query("UPDATE ".DB_PREFIX."blockonomics_bitcoin_orders SET status='".($is_final ? 2 : (int)$status)."',txid='".$this->db->escape($txid)."',bits_payed=".(int)$value.$where);
+
+		if ($is_final && $this->db->countAffected() < 1) {
 			$this->blockonomics->log('info', 'Callback ignored, payment to '.$addr.' was confirmed by another callback.');
 			return;
 		}
 
-		$comment = "";
-		$bits = $order['bits'];
+		$bits = (int)$order['bits'];
 		$expected = $bits / 1.0e8;
 		$real_paid = $value / 1.0e8;
-		$paid = $value / 1.0e8;
 		$tx_url = $this->blockonomics->getTxUrl($txid, $addr);
 
-		$underpayment_slack = $this->setting('underpayment_slack') / 100 * $bits;
-		if ($value < $bits - $underpayment_slack) {
-			$paid = $paid;
-		} else {
-			$paid = $expected;
-		}
-
-		switch ($status) {
-			case 0:
-				// Add the history only for the first unconfirmed callback, so that the customer gets only one e-mail
-				if ((int)$order['status'] !== -1) {
-					break;
-				}
-				$order_status_id = '1';
+		if (!$is_final) {
+			// Add the history only for the first callback of the payment, so that the customer gets only one e-mail
+			if ((int)$order['status'] === -1) {
 				$comment = "Waiting for Confirmation on Bitcoin network<br>" .
 							"Bitcoin transaction id: $txid <br>" .
 							"You can view the transaction at: <br>" .
 							"<a href='$tx_url' target='_blank'>$tx_url</a>";
-				// Progress the order status
-				$this->model_checkout_order->addHistory((int)$order['id_order'], (int)$order_status_id, $comment, true);
-				break;
-			case 1:
-				break;
-			case 2:
-				if ($paid < $expected) {
-					$order_status_id = '7'; // 7 = Canceled
-					$comment = "<b>Warning: Invoice canceled as Paid Amount was less than expected</b><br>";
-				} else {
-					$order_status_id = $this->setting('complete_status');
-				}
-				$comment .= "Bitcoin transaction id: $txid\r" .
-						"Expected amount: $expected BTC\r" .
-						"Paid amount: $real_paid BTC\r" .
-						"You can view the transaction at:\r" .
-						"<a href='$tx_url' target='_blank'>$tx_url</a>";
-				// Progress the order status
-				$this->model_checkout_order->addHistory((int)$order['id_order'], (int)$order_status_id, $comment, true);
-				break;
-			default:
-				$this->response->redirect($this->url->link('checkout/checkout', $this->getLanguageArgs(), true));
-				return;
+				$this->model_checkout_order->addHistory((int)$order['id_order'], 1, $comment, true);
+			}
+			return;
 		}
 
+		// 'Underpayment Slack %' setting, same formula as the WooCommerce plugin
+		$comment = "";
+		if ($this->blockonomics->isUnderpaid($bits, $value)) {
+			$order_status_id = 7; // 7 = Canceled
+			$comment = "<b>Warning: Invoice canceled as Paid Amount was less than expected</b><br>";
+		} else {
+			$order_status_id = (int)$this->setting('complete_status');
+		}
+		$comment .= "Bitcoin transaction id: $txid\r" .
+				"Expected amount: $expected BTC\r" .
+				"Paid amount: $real_paid BTC\r";
+		if ($value > $bits) {
+			$comment .= "Paid amount is more than expected.\r";
+		}
+		$comment .= "You can view the transaction at:\r" .
+				"<a href='$tx_url' target='_blank'>$tx_url</a>";
+		// Progress the order status
+		$this->model_checkout_order->addHistory((int)$order['id_order'], $order_status_id, $comment, true);
 	}
 
 	/**

@@ -17,6 +17,15 @@
   * In the extension settings, click Test Setup.
   * Note: Test Setup does not set the Callback URL on Blockonomics. You must set it on the Blockonomics Dashboard (Stores). If you click Generate Secret, the Callback URL changes and you must update it on the store too.
 
+# Settings
+Same settings as the Blockonomics WooCommerce plugin (except the crypto discount, BCH, USDT, no-JavaScript page and partial payments):
+  * Title (one value for each store language): payment method name during checkout, in the order and on the payment page. Empty: 'Bitcoin'.
+  * Description (one value for each store language): text above the confirm button during checkout. Empty: no text.
+  * Extra Currency Rate Margin % (0-4): BTC price = live price * 100 / (100 + margin). The customer pays this percentage more BTC.
+  * Underpayment Slack % (0-20): a payment is accepted if it is at least the expected amount minus this percentage. A smaller payment cancels the order.
+  * Network Confirmations (0, 1, 2; default 2): the order is complete when a callback has this number of confirmations. Unconfirmed Replace-By-Fee payments are never accepted.
+  * Blockonomics store: Test Setup shows the name of the Blockonomics store that has your Callback URL.
+
 # Make the zip file
   * The name of the zip file must be `blockonomics.ocmod.zip`. OpenCart uses the file name as the extension folder name (`extension/blockonomics/`). Other file names (for example `blockonomics-opencart.ocmod.zip`) do not work.
   * `install.json` must be in the root of the zip file:

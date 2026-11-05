@@ -394,8 +394,13 @@ class Blockonomics {
     $store = $this->findMatchingStore($response->data->data, $secret);
 
     if (!$store) {
+      $this->saveSetting('store_name', '');
+
       return 'noMatchingStore';
     }
+
+    // The admin page shows the name of the store (same as the WooCommerce plugin)
+    $this->saveSetting('store_name', (isset($store->name) && is_string($store->name)) ? $store->name : '');
 
     // 3. BTC wallet on the store
     if (!$this->storeHasCrypto($store, 'BTC')) {
@@ -480,6 +485,101 @@ class Blockonomics {
    */
   public function getTxUrl($txid, $addr) {
     return 'https://www.blockonomics.co/#/search?' . http_build_query(array('q' => $txid, 'addr' => $addr));
+  }
+
+  /**
+   * Saves a setting of this extension (adds the row if it does not exist)
+   *
+   * setting() only changes rows that exist. Installations of earlier versions do not have all rows.
+   *
+   * @param string $key Setting key without the 'payment_blockonomics_' prefix
+   * @param string $value
+   * @return void
+   */
+  public function saveSetting($key, $value) {
+    $code = 'payment_blockonomics';
+    $key = $code . '_' . $key;
+
+    $this->db->query("DELETE FROM `" . DB_PREFIX . "setting` WHERE `store_id` = '0' AND `code` = '" . $code . "' AND `key` = '" . $this->db->escape($key) . "'");
+    $this->db->query("INSERT INTO `" . DB_PREFIX . "setting` SET `store_id` = '0', `code` = '" . $code . "', `key` = '" . $this->db->escape($key) . "', `value` = '" . $this->db->escape((string)$value) . "', `serialized` = '0'");
+
+    $this->config->set($key, (string)$value);
+  }
+
+  /**
+   * Returns the payment method name for the customer language
+   *
+   * The 'Title' setting of the customer language (admin page, one value for each language),
+   * or the default text of the language file ('Bitcoin').
+   * The language file is loaded again, because other extensions can change 'text_title'.
+   *
+   * @return string
+   */
+  public function getTitle() {
+    $title = trim((string)$this->config->get('payment_blockonomics_title_' . (int)$this->config->get('config_language_id')));
+
+    if ($title !== '') {
+      return $title;
+    }
+
+    $this->load->language('extension/blockonomics/payment/blockonomics');
+
+    $title = $this->language->get('text_title');
+
+    // OpenCart 4.0.0.0 - 4.0.1.x do not use the en-gb text when the customer language has no
+    // language file of this extension: get() then returns the key 'text_title'.
+    return ($title !== '' && $title !== 'text_title') ? $title : 'Bitcoin';
+  }
+
+  /**
+   * Applies the 'Extra Currency Rate Margin %' setting to a BTC price
+   *
+   * Same formula as the WooCommerce plugin: price * 100 / (100 + margin).
+   * A lower price gives a higher BTC amount for the same fiat amount.
+   *
+   * @param float $price Price of 1 BTC from the price API
+   * @return float
+   */
+  public function getAdjustedPrice($price) {
+    $margin = (float)$this->setting('extra_margin');
+
+    if ($margin < 0 || $margin > 4) {
+      $margin = 0;
+    }
+
+    return $price * 100 / (100 + $margin);
+  }
+
+  /**
+   * Returns the number of network confirmations that completes a payment (0, 1 or 2, default 2)
+   *
+   * @return int
+   */
+  public function getNetworkConfirmation() {
+    $value = (string)$this->setting('network_confirmation');
+
+    return in_array($value, array('0', '1', '2'), true) ? (int)$value : 2;
+  }
+
+  /**
+   * Checks if a payment is less than expected, with the 'Underpayment Slack %' setting
+   *
+   * Same formula as the WooCommerce plugin.
+   *
+   * @param int $expected_satoshi
+   * @param int $paid_satoshi
+   * @return bool
+   */
+  public function isUnderpaid($expected_satoshi, $paid_satoshi) {
+    $slack = (float)$this->setting('underpayment_slack');
+
+    if ($slack < 0 || $slack > 20) {
+      $slack = 0;
+    }
+
+    $underpayment_slack = ceil($slack / 100 * $expected_satoshi);
+
+    return ($expected_satoshi - $underpayment_slack) > $paid_satoshi;
   }
 
   public function get_crypto_rate_from_params($value, $satoshi) {

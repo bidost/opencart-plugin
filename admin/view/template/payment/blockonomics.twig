@@ -64,6 +64,32 @@
           </div>
 
           <div class="row mb-3">
+            <label class="col-sm-2 col-form-label">{{ entry_title }}</label>
+            <div class="col-sm-10">
+              {% for language in languages %}
+                <div class="input-group mb-1">
+                  <span class="input-group-text">{{ language.name }}</span>
+                  <input type="text" name="payment_blockonomics_title_{{ language.language_id }}" value="{{ blockonomics_title[language.language_id] }}" placeholder="{{ text_default_title }}" id="input-title-{{ language.language_id }}" class="form-control"/>
+                </div>
+              {% endfor %}
+              <div class="form-text">{{ help_title }}</div>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label class="col-sm-2 col-form-label">{{ entry_description }}</label>
+            <div class="col-sm-10">
+              {% for language in languages %}
+                <div class="input-group mb-1">
+                  <span class="input-group-text">{{ language.name }}</span>
+                  <textarea name="payment_blockonomics_description_{{ language.language_id }}" rows="2" placeholder="{{ entry_description }}" id="input-description-{{ language.language_id }}" class="form-control">{{ blockonomics_description[language.language_id] }}</textarea>
+                </div>
+              {% endfor %}
+              <div class="form-text">{{ help_description }}</div>
+            </div>
+          </div>
+
+          <div class="row mb-3">
             <label for="input-complete-status" class="col-sm-2 col-form-label">{{ entry_complete_status }}</label>
             <div class="col-sm-10">
               <select name="payment_blockonomics_complete_status" id="input-complete-status" class="form-select">
@@ -88,6 +114,7 @@
             <label for="blockonomics_api_key" class="col-sm-2 col-form-label">{{ entry_api_key }}</label>
             <div class="col-sm-10">
               <input type="text" name="payment_blockonomics_api_key" value="{{ blockonomics_api_key }}" placeholder="{{ entry_api_key }}" id="blockonomics_api_key" class="form-control" />
+              <div class="form-text" id="blockonomics-store"{% if not blockonomics_store_name %} style="display: none"{% endif %}>{{ text_store_name }}: <strong id="blockonomics-store-name">{{ blockonomics_store_name }}</strong></div>
             </div>
           </div>
 
@@ -113,7 +140,28 @@
           <div class="row mb-3">
             <label for="input-underpayment-slack" class="col-sm-2 col-form-label" data-bs-toggle="popover" data-bs-trigger="hover focus" data-bs-content="{{ help_underpayment_slack }}">{{ entry_underpayment_slack }}</label>
             <div class="col-sm-10">
-              <input type="number" min="0" max="4" step="0.01" name="payment_blockonomics_underpayment_slack" value="{% if blockonomics_underpayment_slack != "" %}{{ blockonomics_underpayment_slack }}{% else %}{{ default_underpayment_slack }}{% endif %}" placeholder="{{ entry_underpayment_slack }}" id="input-underpayment-slack" class="form-control" />
+              <input type="number" min="0" max="20" step="0.1" name="payment_blockonomics_underpayment_slack" value="{% if blockonomics_underpayment_slack != "" %}{{ blockonomics_underpayment_slack }}{% else %}0{% endif %}" placeholder="{{ entry_underpayment_slack }}" id="input-underpayment-slack" class="form-control" />
+              <div class="form-text">{{ help_underpayment_slack }}</div>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-extra-margin" class="col-sm-2 col-form-label">{{ entry_extra_margin }}</label>
+            <div class="col-sm-10">
+              <input type="number" min="0" max="4" step="0.01" name="payment_blockonomics_extra_margin" value="{% if blockonomics_extra_margin != "" %}{{ blockonomics_extra_margin }}{% else %}0{% endif %}" placeholder="{{ entry_extra_margin }}" id="input-extra-margin" class="form-control" />
+              <div class="form-text">{{ help_extra_margin }}</div>
+            </div>
+          </div>
+
+          <div class="row mb-3">
+            <label for="input-network-confirmation" class="col-sm-2 col-form-label">{{ entry_network_confirmation }}</label>
+            <div class="col-sm-10">
+              <select name="payment_blockonomics_network_confirmation" id="input-network-confirmation" class="form-select">
+                <option value="2"{% if blockonomics_network_confirmation == '2' %} selected="selected"{% endif %}>{{ text_confirmation_recommended }}</option>
+                <option value="1"{% if blockonomics_network_confirmation == '1' %} selected="selected"{% endif %}>1</option>
+                <option value="0"{% if blockonomics_network_confirmation == '0' %} selected="selected"{% endif %}>0</option>
+              </select>
+              <div class="form-text">{{ help_network_confirmation }}</div>
             </div>
           </div>
         </div>
@@ -141,7 +189,7 @@
 
   let ajax_handler = null
 
-  jQuery(".form-control,.form-check-input").change(() => {
+  jQuery(".form-control,.form-check-input,.form-select").change(() => {
     // Detect that forms has changed
     jQuery("#unsaved_changes").show();
     jQuery("#test_setup").hide();
@@ -215,6 +263,11 @@
       url: apiendpoints.test_setup
     }).then(res => {
       jQuery("#test_setup").removeAttr('disabled');
+      // Name of the matching Blockonomics store (empty if no store matches)
+      if (typeof res.store_name !== 'undefined') {
+        jQuery("#blockonomics-store-name").text(res.store_name);
+        jQuery("#blockonomics-store").toggle(res.store_name !== '');
+      }
       if (!res.error) jQuery("#msg_success").show();
       else {
         jQuery("#error_msg").html(res.error);

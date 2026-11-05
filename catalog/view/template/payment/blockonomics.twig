@@ -8,6 +8,9 @@
   - $('#button-confirm').trigger('click') from a one page checkout: jQuery calls the onclick,
   - confirm HTML added with innerHTML (scripts do not run) or jQuery loaded at the end of the page: works.
 #}
+{% if description %}
+  <div class="blockonomics-description mb-3">{{ description }}</div>
+{% endif %}
 <div class="text-end">
   <a href="{{ url_redirect }}" id="button-confirm" class="btn btn-primary" role="button" onclick="window.location.href = this.href; return false;">{{ button_confirm }}</a>
 </div>
