@@ -75,6 +75,20 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 			return;
 		}
 
+		// The customer already paid (a callback was received): do not change the order or the expected amount.
+		// The page can be opened again, for example by the automatic reload after 10 minutes.
+		$payment = $this->db->query("SELECT `status` FROM ".DB_PREFIX."blockonomics_bitcoin_orders WHERE `id_order` = '".(int)$order_info['order_id']."' LIMIT 1")->row;
+
+		if (isset($payment['status']) && (int)$payment['status'] !== -1) {
+			if ((int)$payment['status'] === 2 && (int)$order_info['order_status_id'] === 7) {
+				// Underpaid: the callback cancelled the order
+				$this->response->redirect($this->url->link('checkout/failure', $this->getLanguageArgs(), true));
+			} else {
+				$this->response->redirect($this->url->link('checkout/success', $this->getLanguageArgs(), true));
+			}
+			return;
+		}
+
 		$this->document->setTitle($this->blockonomics->getTitle());
 
 		$data['breadcrumbs'] = array();
@@ -141,7 +155,12 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		$data['crypto_rate'] = $this->blockonomics->get_crypto_rate_from_params($fiat_amount, $bits);
 		$order_id = (int)$order_info['order_id'];
     
-		$this->model_checkout_order->addHistory($order_id, 1, "", true);
+		// Confirm the order only once (OpenCart then sends the order confirmation e-mail).
+		// Do not add a history again on each page load: it would set the order status back to Pending.
+		if (!(int)$order_info['order_status_id']) {
+			$pending_status_id = (int)$this->config->get('config_order_status_id');
+			$this->model_checkout_order->addHistory($order_id, $pending_status_id ? $pending_status_id : 1, "", true);
+		}
 
 		$current_time = time();
 		$data['order_id'] = $order_id;
