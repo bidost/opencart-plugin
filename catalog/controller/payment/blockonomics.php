@@ -316,8 +316,44 @@ class Blockonomics extends \Opencart\System\Engine\Controller {
 		}
 		$comment .= "You can view the transaction at:\r" .
 				"<a href='$tx_url' target='_blank'>$tx_url</a>";
-		// Progress the order status
+		// Progress the order status (OpenCart sends this order status e-mail only to the customer)
 		$this->model_checkout_order->addHistory((int)$order['id_order'], $order_status_id, $comment, true);
+
+		// Payment received (Processing): send the same order status e-mail to the store owner too
+		if ($order_status_id !== 7) {
+			$this->sendHistoryMailToStore((int)$order['id_order'], $order_status_id, $comment);
+		}
+	}
+
+	/**
+	 * Sends the OpenCart order status (history) e-mail to the store e-mail address
+	 *
+	 * The core method sends this e-mail to $order_info['email'] (the customer).
+	 * It is called again with the store e-mail address as the recipient.
+	 * The method name is 'edit' in OpenCart 4.0.x and 'history' in OpenCart 4.1.x.
+	 *
+	 * @param int $order_id
+	 * @param int $order_status_id
+	 * @param string $comment
+	 * @return void
+	 */
+	private function sendHistoryMailToStore($order_id, $order_status_id, $comment) {
+		$store_email = (string)$this->config->get('config_email');
+		$order_info = $this->model_checkout_order->getOrder($order_id);
+
+		if (!$order_info || !filter_var($store_email, FILTER_VALIDATE_EMAIL) || $store_email == $order_info['email']) {
+			return;
+		}
+
+		$order_info['email'] = $store_email;
+
+		$method = version_compare(VERSION, '4.1.0.0', '>=') ? 'history' : 'edit';
+
+		try {
+			$this->load->controller($this->blockonomics->route('mail/order', $method), $order_info, (int)$order_status_id, $comment, true);
+		} catch (\Throwable $e) {
+			$this->blockonomics->log('error', 'Order status e-mail to the store was not sent: ' . $e->getMessage());
+		}
 	}
 
 	/**
